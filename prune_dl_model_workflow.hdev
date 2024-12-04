@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hdevelop file_version="1.2" halcon_version="24.05.0.0">
+<procedure name="main">
+<interface/>
+<body>
+<c>* </c>
+<c>* Deep learning pruning workflow.</c>
+<c>* </c>
+<c>* </c>
+<l>dev_close_window ()</l>
+<l>dev_update_off ()</l>
+<l>set_system ('seed_rand', 42)</l>
+<c>* </c>
+<c>* Determine deep learning device to work with (prefer GPU over CPU).</c>
+<l>query_available_dl_devices (['runtime', 'runtime'], ['gpu', 'cpu'], DLDeviceHandles)</l>
+<l>if (|DLDeviceHandles| == 0)</l>
+<l>    throw ('No supported device found to continue this example.')</l>
+<l>endif</l>
+<l>DLDevice := DLDeviceHandles[0]</l>
+<l>get_dl_device_param (DLDevice, 'type', DLDeviceType)</l>
+<l>if (DLDeviceType == 'cpu')</l>
+<c>    * The number of threads impacts the example duration.</c>
+<l>    set_system ('thread_num', 4)</l>
+<l>endif</l>
+<c>* </c>
+<c>* *** 0.) DEFINE PATHS AND FILES ***</c>
+<c>* </c>
+<c>* Define the input model (trained for the dataset in the preprocessing block below).</c>
+<l>ModelFileName := 'classify_pill_defects.hdl'</l>
+<c>* Define the folder with input images.</c>
+<l>get_system ('example_dir', PathExample)</l>
+<l>RawImageFolder := PathExample + '/images/pill/'</l>
+<c>* Define the directory for preprocessed dataset.</c>
+<l>ExampleDataDir := 'pruning_pill_data'</l>
+<c>* Set to true, if the results should be deleted after running this program.</c>
+<l>RemoveExampleDataDir := 'false'</l>
+<c>* Define whether the progress is shown (true) or not (false).</c>
+<l>ShowProgress := 'true'</l>
+<c>* </c>
+<c>* *** 1.) READ AND PREPROCESS THE DATASET  ***</c>
+<c>* </c>
+<c>* Read the pretrained classification model and set it up.</c>
+<l>read_dl_model (ModelFileName, DLModelHandle)</l>
+<l>set_dl_model_param (DLModelHandle, 'batch_size', 4)</l>
+<l>set_dl_model_param (DLModelHandle, 'device', DLDevice)</l>
+<c>* </c>
+<c>* Read in a DLDataset.</c>
+<l>read_dl_dataset_classification (RawImageFolder, 'last_folder', DLDataset)</l>
+<c>* </c>
+<c>* Preprocess the data in DLDataset.</c>
+<l>split_dl_dataset (DLDataset, 70, 15, [])</l>
+<l>create_dl_preprocess_param_from_model (DLModelHandle, 'none', 'full_domain', [], [], [], DLPreprocessParam)</l>
+<l>PreprocessSettings := dict{overwrite_files: true, show_progress: ShowProgress}</l>
+<l>preprocess_dl_dataset (DLDataset, ExampleDataDir, DLPreprocessParam, PreprocessSettings, DLDatasetFile)</l>
+<c>* </c>
+<c>* *** 2.) EVALUATE THE UNPRUNED MODEL ***</c>
+<c>* </c>
+<c>* Define the evaluation parameters for this example.</c>
+<l>GenParamEval := dict{show_progress: ShowProgress}</l>
+<l>GenParamEval.measures := ['top1_error', 'precision', 'recall', 'f_score']</l>
+<l>GenParamEvalDisplay := dict{display_mode: 'measures'}</l>
+<l>EvalWindowHandleDict := dict{}</l>
+<c>* </c>
+<c>* Evaluate the input trained model.</c>
+<l>evaluate_dl_model (DLDataset, DLModelHandle, 'split', 'test', GenParamEval, EvaluationResultInput, EvalParams)</l>
+<l>dev_display_classification_evaluation (EvaluationResultInput, EvalParams, GenParamEvalDisplay, EvalWindowHandleDict)</l>
+<l>WindowHandleMeasures := EvalWindowHandleDict.window_measures</l>
+<l>set_display_font (WindowHandleMeasures, 16, 'mono', 'true', 'false')</l>
+<l>dev_disp_text ('Input model', 'window', 'top', 'right', 'white', 'box', 'false')</l>
+<l>disp_continue_message (WindowHandleMeasures, 'black', 'true')</l>
+<l>stop ()</l>
+<l>dev_close_window_dict (EvalWindowHandleDict)</l>
+<c>* </c>
+<c>* *** 3.) PRUNE THE MODEL AND EVALUATE IT ***</c>
+<c>* </c>
+<c>* Prune the trained input model.</c>
+<l>PrunePercentage := 40</l>
+<l>GenParamPrune := dict{show_progress: ShowProgress}</l>
+<c>* Set possible augmentation parameters: augmentation percentage and method.</c>
+<l>AugmentationParam := dict{augmentation_percentage: 50, mirror: 'rc'}</l>
+<l>GenParamPrune.augmentation_param := AugmentationParam</l>
+<c></c>
+<c>* prune the model </c>
+<l>prune_dl_model (DLModelHandle, DLDataset, PrunePercentage, GenParamPrune, DLModelHandlePruned, DLPruningHandle)</l>
+<l>set_dl_model_param (DLModelHandlePruned, 'device', DLDevice)</l>
+<c>* </c>
+<c>* Evaluate the pruned model.</c>
+<l>evaluate_dl_model (DLDataset, DLModelHandlePruned, 'split', 'test', GenParamEval, EvaluationResultPruned, EvalParams)</l>
+<l>dev_display_classification_evaluation (EvaluationResultPruned, EvalParams, GenParamEvalDisplay, EvalWindowHandleDict)</l>
+<l>WindowHandleMeasures := EvalWindowHandleDict.window_measures</l>
+<l>set_display_font (WindowHandleMeasures, 16, 'mono', 'true', 'false')</l>
+<l>dev_disp_text ('Pruned model', 'window', 'top', 'right', 'white', 'box', 'false')</l>
+<l>disp_continue_message (WindowHandleMeasures, 'black', 'true')</l>
+<l>stop ()</l>
+<l>dev_close_window_dict (EvalWindowHandleDict)</l>
+<c>* </c>
+<c>* *** 4.) RETRAIN THE PRUNED MODEL 1 EPOCH AND EVALUATE IT ***</c>
+<c>* </c>
+<c>* Retrain the pruned model with 1 epoch</c>
+<l>set_dl_model_param (DLModelHandlePruned, 'learning_rate', 1e-5)</l>
+<l>create_dl_train_param (DLModelHandlePruned, 1, 1, ShowProgress, 0, [], [], TrainParam)</l>
+<l>train_dl_model (DLDataset, DLModelHandlePruned, TrainParam, 0, TrainResults, TrainInfos, EvaluationInfos)</l>
+<l>dev_close_window ()</l>
+<l>dev_close_window ()</l>
+<c>* </c>
+<c>* Evaluate the retrained pruned model.</c>
+<l>evaluate_dl_model (DLDataset, DLModelHandlePruned, 'split', 'test', GenParamEval, EvaluationResultRetrained, EvalParams)</l>
+<l>dev_display_classification_evaluation (EvaluationResultRetrained, EvalParams, GenParamEvalDisplay, EvalWindowHandleDict)</l>
+<l>WindowHandleMeasures := EvalWindowHandleDict.window_measures</l>
+<l>set_display_font (WindowHandleMeasures, 16, 'mono', 'true', 'false')</l>
+<l>dev_disp_text ('Retrained model', 'window', 'top', 'right', 'white', 'box', 'false')</l>
+<l>disp_continue_message (WindowHandleMeasures, 'black', 'true')</l>
+<l>stop ()</l>
+<l>dev_close_window_dict (EvalWindowHandleDict)</l>
+<c>* </c>
+<c>* Finally we optimize the model for inference in order to save even more resources.</c>
+<l>set_dl_model_param (DLModelHandlePruned, 'optimize_for_inference', 'true')</l>
+<c>* </c>
+<c>* Clean up.</c>
+<l>clean_up_output (ExampleDataDir, RemoveExampleDataDir)</l>
+<c>* </c>
+<c>* *** 5.) DISPLAY EVALUATION RESULTS COMPARISON ***</c>
+<c>* </c>
+<l>EvaluationResults := [EvaluationResultInput,EvaluationResultPruned,EvaluationResultRetrained]</l>
+<l>dev_open_window (0, 0, 512, 256, 'black', WindowHandle)</l>
+<l>display_results_overview (WindowHandle, PrunePercentage, GenParamEval, EvaluationResults)</l>
+<l>disp_end_of_program_message (WindowHandle, 'black', 'true')</l>
+</body>
+<docu id="main">
+<parameters/>
+</docu>
+</procedure>
+<procedure name="clean_up_output">
+<interface>
+<ic>
+<par name="OutputDir" base_type="ctrl" dimension="0"/>
+<par name="RemoveResults" base_type="ctrl" dimension="0"/>
+</ic>
+</interface>
+<body>
+<c>* This local example procedure cleans up the dataset directory of the example.</c>
+<c>* </c>
+<l>if (not (RemoveResults == true or RemoveResults == 'true'))</l>
+<l>    return ()</l>
+<l>endif</l>
+<c>* Display a warning.</c>
+<l>dev_open_window (0, 0, 600, 300, 'black', WindowHandle)</l>
+<l>set_display_font (WindowHandle, 16, 'mono', 'true', 'false')</l>
+<l>WarningCleanup := ['You selected to delete all example output data.', '', 'To confirm this and delete the data, press F5.']</l>
+<l>dev_disp_text (WarningCleanup, 'window', 'center', 'center', ['black', 'black', 'coral'], [], [])</l>
+<l>stop ()</l>
+<l>dev_close_window ()</l>
+<c>* </c>
+<c>* Delete example data.</c>
+<l>remove_dir_recursively (OutputDir)</l>
+<l>return ()</l>
+</body>
+<docu id="clean_up_output">
+<parameters>
+<parameter id="OutputDir"/>
+<parameter id="RemoveResults"/>
+</parameters>
+</docu>
+</procedure>
+<procedure name="display_results_overview">
+<interface>
+<ic>
+<par name="WindowHandle" base_type="ctrl" dimension="0"/>
+<par name="PrunePercentage" base_type="ctrl" dimension="0"/>
+<par name="GenParamEval" base_type="ctrl" dimension="0"/>
+<par name="EvaluationResults" base_type="ctrl" dimension="0"/>
+</ic>
+</interface>
+<body>
+<c>* Define formatting.</c>
+<l>FloatFormat := '10.3f'</l>
+<l>StringFormat := '10s'</l>
+<l>StringFormatModel := '16s'</l>
+<c>* Compose header and line starts.</c>
+<l>get_dict_tuple (GenParamEval, 'measures', Measures)</l>
+<c>* </c>
+<l>Message := []</l>
+<l>Message[|Message|] := 'Overview after pruning ' + PrunePercentage + '%'</l>
+<l>Message[|Message|] := ''</l>
+<c>* </c>
+<l>Message[|Message|] := ''$StringFormatModel</l>
+<l>Message[|Message|] := '-----------------'</l>
+<l>for Measure := 0 to |Measures| - 1 by 1</l>
+<l>    Message[|Message| - 2] := Message[|Message| - 2] + ' | ' + Measures[Measure]$StringFormat</l>
+<l>    Message[|Message| - 1] := Message[|Message| - 1] + '|' + '------------'</l>
+<l>endfor</l>
+<c>* </c>
+<l>Message[|Message|] := 'input model'$StringFormatModel</l>
+<l>Message[|Message|] := 'pruned model'$StringFormatModel</l>
+<l>Message[|Message|] := 'retrained model'$StringFormatModel</l>
+<c>* </c>
+<l>Message[|Message|] := ''</l>
+<l>Message[|Message|] := 'Remarks:'</l>
+<l>Message[|Message|] := '* Inference (apply_dl_model time) strongly depends on the available'</l>
+<l>Message[|Message|] := '  resources and their current last, so the values are only indications.'</l>
+<l>Message[|Message|] := '  The model is in general faster after pruning than before,'</l>
+<l>Message[|Message|] := '  except for CPUs on non-embedded systems due to internal optimizations.'</l>
+<l>Message[|Message|] := ''</l>
+<l>Message[|Message|] := '* After pruning the model its file size and memory consumption are reduced.'</l>
+<l>Message[|Message|] := '  How much depends on many factors as e.g., the used model architecture.'</l>
+<c>* </c>
+<c>* Retrieve for each model evaluation values and inference time.</c>
+<l>NumModels := |EvaluationResults|</l>
+<l>LineIdx := 3</l>
+<l>for ModelIdx := 0 to NumModels - 1 by 1</l>
+<l>    LineIdx := LineIdx + 1</l>
+<l>    get_dict_tuple (EvaluationResults[ModelIdx], 'global', GlobalDict)</l>
+<l>    for MeasureIdx := 0 to |Measures| - 1 by 1</l>
+<l>        MeasureKey := Measures[MeasureIdx]</l>
+<l>        if (MeasureKey != 'top1_error')</l>
+<l>            MeasureKey := 'mean_' + MeasureKey</l>
+<l>        endif</l>
+<l>        get_dict_tuple (GlobalDict, MeasureKey, MeasureValue)</l>
+<l>        Message[LineIdx] := Message[LineIdx] + ' | ' + MeasureValue$FloatFormat</l>
+<l>    endfor</l>
+<l>    Message[LineIdx] := Message[LineIdx]</l>
+<l>endfor</l>
+<c>* </c>
+<l>set_display_font (WindowHandle, 16, 'mono', 'true', 'false')</l>
+<l>MaxLineWidth := -1</l>
+<l>MaxLineHeight := -1</l>
+<l>for Line := 0 to |Message| - 1 by 1</l>
+<l>    get_string_extents (WindowHandle, Message[Line], _, _, LineWidth, LineHeight)</l>
+<l>    MaxLineWidth := max2(MaxLineWidth,LineWidth)</l>
+<l>    MaxLineHeight := max2(MaxLineHeight,LineHeight)</l>
+<l>endfor</l>
+<l>WindowWidth := MaxLineWidth + 40</l>
+<l>WindowHeight := (MaxLineHeight + 6) * (|Message| + 2)</l>
+<l>dev_set_window_extents (0, 0, WindowWidth, WindowHeight)</l>
+<l>dev_disp_text (Message, 'window', 'top', 'left', 'white', 'box', 'false')</l>
+<l>return ()</l>
+</body>
+<docu id="display_results_overview">
+<parameters>
+<parameter id="EvaluationResults"/>
+<parameter id="GenParamEval"/>
+<parameter id="PrunePercentage"/>
+<parameter id="WindowHandle"/>
+</parameters>
+</docu>
+</procedure>
+</hdevelop>

@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hdevelop file_version="1.2" halcon_version="24.05.0.0">
+<procedure name="main">
+<interface/>
+<body>
+<c>* Use the deep learning edge extraction model, prune, retain, extract specific edges.</c>
+<c></c>
+<l>dev_close_window ()</l>
+<l>dev_update_off ()</l>
+<l>set_system ('seed_rand', 42)</l>
+<c>* </c>
+<l>ImageDir := 'fabrics'</l>
+<l>LabelDir := 'labels/fabrics'</l>
+<c>* </c>
+<l>OutputDir := 'segment_edges_data'</l>
+<c>* </c>
+<c>* Set image sizes. Note that the values need to be divisible by 16.</c>
+<l>ImageWidth := 208</l>
+<l>ImageHeight := 208</l>
+<c>* Set class names and ids.</c>
+<l>ClassNames := ['background', 'edge']</l>
+<l>ClassIDs := [0, 255]</l>
+<c>* </c>
+<c>* Set whether the results should be deleted</c>
+<l>RemoveResults := false</l>
+<c>* </c>
+<l>dev_disp_description_intro ()</l>
+<l>stop ()</l>
+<l>dev_close_window ()</l>
+<c>* </c>
+<c>* Determine deep learning device by using GPU</c>
+<l>query_available_dl_devices (['runtime', 'runtime'], ['gpu', 'cpu'], DLDeviceHandles)</l>
+<l>if (|DLDeviceHandles| == 0)</l>
+<l>    throw ('No supported device found to continue this example.')</l>
+<l>endif</l>
+<c>* Due to the filter used in query_available_dl_devices, the first device is a GPU, if available.</c>
+<l>DLDevice := DLDeviceHandles[0]</l>
+<l>get_dl_device_param (DLDevice, 'type', DLDeviceType)</l>
+<l>if (DLDeviceType == 'cpu')</l>
+<c>    * The number of used threads may have an impact on the training duration.</c>
+<l>    NumThreadsTraining := 4</l>
+<l>    set_system ('thread_num', NumThreadsTraining)</l>
+<l>endif</l>
+<c>* </c>
+<c>* Read and preprocess the 10 labeled images for training.</c>
+<l>ImageList := 'fabrics_' + [1:10]$'.2d' + '.png'</l>
+<l>read_dl_dataset_segmentation (ImageDir, LabelDir, ClassNames, ClassIDs, ImageList, [], [], DLDataset)</l>
+<c>* Split in 'train' and 'validation' only here since there are only 10 labeled images.</c>
+<l>split_dl_dataset (DLDataset, 80, 20, [])</l>
+<l>PreprocessSettings := dict{overwrite_files: 'auto'}</l>
+<l>create_dl_preprocess_param ('segmentation', ImageWidth, ImageHeight, 1, -127, 128, 'none', 'full_domain', [], [], [], [], DLPreprocessParam)</l>
+<l>preprocess_dl_dataset (DLDataset, OutputDir, DLPreprocessParam, PreprocessSettings, DLDatasetFileName)</l>
+<c>* </c>
+<c>* Inspect preprocessed DLSamples visually.</c>
+<l>WindowDict := dict{}</l>
+<l>GenParam := dict{segmentation_exclude_class_ids: 0}</l>
+<l>for Index := 0 to 9 by 1</l>
+<l>    read_dl_samples (DLDataset, Index, DLSample)</l>
+<l>    dev_display_dl_data (DLSample, [], DLDataset, 'segmentation_image_ground_truth', GenParam, WindowDict)</l>
+<l>    PreprocessingWindows := WindowDict.segmentation_image_ground_truth</l>
+<l>    dev_set_window (PreprocessingWindows[0])</l>
+<l>    dev_disp_text ('Image and label after preprocessing', 'window', 'top', 'left', 'black', [], [])</l>
+<l>    dev_set_window (PreprocessingWindows[1])</l>
+<l>    dev_disp_text ('Press F5 to continue', 'window', 'bottom', 'right', 'black', [], [])</l>
+<l>    stop ()</l>
+<l>endfor</l>
+<l>dev_close_window_dict (WindowDict)</l>
+<c>* </c>
+<c>* Specify model and training parameters.</c>
+<l>BatchSize := 2</l>
+<l>LearningRate := 0.002</l>
+<l>Momentum := 0.95</l>
+<l>WeightPrior := 0.00001</l>
+<l>NumEpoch := 200</l>
+<c>* </c>
+<c>* Read model and set model parameters.</c>
+<l>read_dl_model ('pretrained_dl_edge_extractor.hdl', DLModelHandle)</l>
+<l>set_dl_model_param_based_on_preprocessing (DLModelHandle, DLPreprocessParam, ClassIDs)</l>
+<l>set_dl_model_param (DLModelHandle, 'batch_size', BatchSize)</l>
+<l>set_dl_model_param (DLModelHandle, 'learning_rate', LearningRate)</l>
+<l>set_dl_model_param (DLModelHandle, 'momentum', Momentum)</l>
+<l>set_dl_model_param (DLModelHandle, 'weight_prior', WeightPrior)</l>
+<l>set_dl_model_param (DLModelHandle, 'device', DLDevice)</l>
+<c>* </c>
+<c>* Set augmentation for training.</c>
+<l>AugmentationParam := dict{augmentation_percentage: 70, mirror: 'rc'}</l>
+<l>GenParamName := 'augment'</l>
+<l>GenParamValue := AugmentationParam</l>
+<c>* </c>
+<c>* Train model on the labeled data samples.</c>
+<c>* The training is done by calling train_dl_model_batch () within the following procedure.</c>
+<l>create_dl_train_param (DLModelHandle, NumEpoch, 1, 'true', 73, GenParamName, GenParamValue, TrainParam)</l>
+<l>train_dl_model (DLDataset, DLModelHandle, TrainParam, 0, TrainResults, TrainInfos, EvaluationInfos)</l>
+<l>dev_disp_text ('Press F5 to continue', 'window', 'bottom', 'left', 'black', [], [])</l>
+<l>stop ()</l>
+<l>dev_close_window ()</l>
+<l>dev_close_window ()</l>
+<c>* </c>
+<c>* Read the best model, which is written to file by train_dl_model.</c>
+<l>read_dl_model ('model_best.hdl', DLModelHandle)</l>
+<l>set_dl_model_param (DLModelHandle, 'batch_size', 1)</l>
+<l>set_dl_model_param (DLModelHandle, 'optimize_for_inference', 'true')</l>
+<l>set_dl_model_param (DLModelHandle, 'device', DLDevice)</l>
+<c>* </c>
+<c>* Test model on new images.</c>
+<l>dev_open_window (0, 0, 460, 460, 'black', WindowHandle)</l>
+<l>set_display_font (WindowHandle, 14, 'mono', 'true', 'false')</l>
+<l>dev_set_color ('cyan')</l>
+<c>* </c>
+<l>NumImages := 10</l>
+<l>for Index := 0 to NumImages - 1 by 1</l>
+<l>    read_image (Image, ImageDir + '/fabrics_' + (Index + 11)$'02')</l>
+<l>    zoom_image_size (Image, Image, ImageWidth, ImageHeight, 'constant')</l>
+<c>    * </c>
+<c>    * Create and preprocess DLSample from the input image.</c>
+<l>    gen_dl_samples_from_images (Image, DLSample)</l>
+<l>    preprocess_dl_samples (DLSample, DLPreprocessParam)</l>
+<c>    * </c>
+<c>    * Apply the model and extract edges out of the inference result.</c>
+<l>    apply_dl_model (DLModelHandle, DLSample, [], DLResult)</l>
+<l>    SegmentationImage := DLResult.segmentation_image</l>
+<l>    SegmentationConfidence := DLResult.segmentation_confidence</l>
+<l>    threshold (SegmentationImage, DLEdgeRegion, 1, 255)</l>
+<c>    * Specify minimum confidence to reduce false positives.</c>
+<l>    MinConfidence := 0.8</l>
+<l>    threshold (SegmentationConfidence, ConfidentRegion, MinConfidence, 255)</l>
+<l>    intersection (DLEdgeRegion, ConfidentRegion, ConfidentEdgeRegion)</l>
+<c>    * Thresholding the confidence image may lead to disconnections and holes - reconnect and fill them.</c>
+<l>    dilation_circle (ConfidentEdgeRegion, ConfidentEdgeRegion, 5)</l>
+<l>    skeleton (ConfidentEdgeRegion, DLEdges)</l>
+<l>    pruning (DLEdges, DLEdges, 5)</l>
+<c>    * </c>
+<l>    dev_set_window (WindowHandle)</l>
+<l>    dev_clear_window ()</l>
+<l>    dev_display (Image)</l>
+<l>    dev_display (DLEdges)</l>
+<l>    dev_disp_text ('Apply retrained model on new images', 'window', 'top', 'left', 'black', [], [])</l>
+<l>    dev_disp_text ('Image ' + (Index + 1) + '/' + NumImages, 'window', 'top', 'right', 'black', 'box', 'true')</l>
+<l>    disp_continue_message (WindowHandle, 'black', 'true')</l>
+<l>    stop ()</l>
+<l>endfor</l>
+<l>dev_close_window ()</l>
+<c>* </c>
+<l>clean_up_output (OutputDir, RemoveResults)</l>
+</body>
+<docu id="main">
+<parameters/>
+</docu>
+</procedure>
+<procedure name="dev_disp_description_intro">
+<interface/>
+<body>
+<l>read_image (Image, 'fabrics/fabrics_01.png')</l>
+<l>read_image (Label, 'labels/fabrics/fabrics_01_gt.png')</l>
+<l>threshold (Label, EdgeRegion, 1, 255)</l>
+<l>skeleton (EdgeRegion, EdgeRegion)</l>
+<l>get_region_points (EdgeRegion, Rows, Columns)</l>
+<l>PointIndices := [0:30:|Rows| - 1]</l>
+<l>gen_cross_contour_xld (Crosses, Rows[PointIndices], Columns[PointIndices], 10, 0.785398)</l>
+<l>dev_open_window (0, 0, 512, 512, 'black', WindowHandle)</l>
+<l>dev_set_color ('#F28D26')</l>
+<l>set_display_font (WindowHandle, 14, 'mono', 'true', 'false')</l>
+<l>dev_set_line_width (3)</l>
+<l>dev_display (Image)</l>
+<l>dev_display (Crosses)</l>
+<l>Text := 'In this application we want to segment specific edges.'</l>
+<l>Text[|Text|] := 'For visualization purposes we marked them with crosses.'</l>
+<l>dev_disp_text (Text, 'window', 'top', 'left', 'black', 'box', 'true')</l>
+<l>disp_continue_message (WindowHandle, 'black', 'true')</l>
+<l>stop ()</l>
+<l>dev_clear_window ()</l>
+<l>dev_display (Image)</l>
+<l>dev_display (Crosses)</l>
+<l>Text := 'The deep learning edge extraction model is trained to'</l>
+<l>Text[|Text|] := 'extract general edges.'</l>
+<l>Text[|Text|] := ''</l>
+<l>Text[|Text|] := 'This example shows how the model can be retrained in order'</l>
+<l>Text[|Text|] := 'to recognize specific edges.'</l>
+<l>Text[|Text|] := ''</l>
+<l>Text[|Text|] := 'For this purpose we use 10 labeled images. A script for'</l>
+<l>Text[|Text|] := 'labeling edges can be downloaded from the official MVTec'</l>
+<l>Text[|Text|] := 'website.'</l>
+<l>dev_disp_text (Text, 'window', 'top', 'left', 'black', 'box', 'true')</l>
+<l>disp_continue_message (WindowHandle, 'black', 'true')</l>
+<l>stop ()</l>
+<l>dev_clear_window ()</l>
+<l>dev_display (Image)</l>
+<l>dev_display (Crosses)</l>
+<l>Text := 'The retraining of the edge extraction model follows the'</l>
+<l>Text[|Text|] := 'workflow of deep learning semantic segmentation:'</l>
+<l>Text[|Text|] := ''</l>
+<l>Text[|Text|] := '0. Determine runtime device.'</l>
+<l>Text[|Text|] := '1. Read, split and preprocess the training dataset.'</l>
+<l>Text[|Text|] := '2. Read the deep learning model and set model parameters.'</l>
+<l>Text[|Text|] := '3. Set generic training parameters and train the model.'</l>
+<l>Text[|Text|] := '4. Read the best model and test it on new application'</l>
+<l>Text[|Text|] := '   images.'</l>
+<l>Text[|Text|] := ''</l>
+<l>Text[|Text|] := 'After determining the device, we start with preprocessing'</l>
+<l>Text[|Text|] := 'the dataset.'</l>
+<l>dev_disp_text (Text, 'window', 'top', 'left', 'black', 'box', 'true')</l>
+<l>disp_continue_message (WindowHandle, 'black', 'true')</l>
+<l>return ()</l>
+</body>
+<docu id="dev_disp_description_intro">
+<parameters/>
+</docu>
+</procedure>
+<procedure name="clean_up_output">
+<interface>
+<ic>
+<par name="OutputDir" base_type="ctrl" dimension="0"/>
+<par name="RemoveResults" base_type="ctrl" dimension="0"/>
+</ic>
+</interface>
+<body>
+<c>* This local example procedure cleans up the output of the example.</c>
+<c>* </c>
+<l>if (not RemoveResults)</l>
+<l>    return ()</l>
+<l>endif</l>
+<c>* Display a warning.</c>
+<l>dev_open_window (0, 0, 600, 300, 'black', WindowHandle)</l>
+<l>set_display_font (WindowHandle, 16, 'mono', 'true', 'false')</l>
+<l>WarningCleanup := ['Congratulations, you have finished the example.', '', 'Unless you would like to use the output data / model,', 'press F5 to clean up.']</l>
+<l>dev_disp_text (WarningCleanup, 'window', 'center', 'center', ['black', 'black', 'coral', 'coral', 'coral'], [], [])</l>
+<c>* </c>
+<l>stop ()</l>
+<l>dev_close_window ()</l>
+<c>* </c>
+<c>* Delete all outputs of the example.</c>
+<l>remove_dir_recursively (OutputDir)</l>
+<l>delete_file ('model_best.hdl')</l>
+<l>delete_file ('model_best_info.hdict')</l>
+<l>return ()</l>
+</body>
+<docu id="clean_up_output">
+<parameters>
+<parameter id="OutputDir"/>
+<parameter id="RemoveResults"/>
+</parameters>
+</docu>
+</procedure>
+</hdevelop>

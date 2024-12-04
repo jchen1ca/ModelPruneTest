@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hdevelop file_version="1.2" halcon_version="24.05.0.0">
+<procedure name="main">
+<interface/>
+<body>
+<c>* Test the inference of the deep learning edge extractor </c>
+<c>* with pretrained model, pruned model, retrained model</c>
+<c></c>
+<l>dev_update_off ()</l>
+<l>dev_close_window ()</l>
+<c></c>
+<c>* Set image sizes (dividable by 16)</c>
+<l>ImageWidth  := 384</l>
+<l>ImageHeight := 384</l>
+<c></c>
+<c></c>
+<c>* Choose CPU as the device, as it is more stable in consistent run time. </c>
+<l>query_available_dl_devices (['runtime', 'runtime'], ['cpu','gpu'], DLDeviceHandles)</l>
+<l>if (|DLDeviceHandles| == 0)</l>
+<l>    throw ('No supported device found to continue this example.')</l>
+<l>endif</l>
+<l>DLDevice := DLDeviceHandles[0]</l>
+<c></c>
+<c></c>
+<c>* Read the deep learning model and set model parameters.</c>
+<l>read_dl_model ('pretrained_dl_edge_extractor.hdl', DLModelHandle)</l>
+<l>set_dl_model_param (DLModelHandle, 'batch_size', 1)</l>
+<l>set_dl_model_param (DLModelHandle, 'image_dimensions', [ImageWidth,ImageHeight,1])</l>
+<l>set_dl_model_param (DLModelHandle, 'device', DLDevice)</l>
+<l>create_dl_preprocess_param_from_model (DLModelHandle, 'none', 'full_domain', [], [], [], DLPreprocessParam)</l>
+<c></c>
+<c></c>
+<c>************************************************************</c>
+<c>* dataset</c>
+<l>ImageDir := 'fabrics'</l>
+<l>LabelDir := 'labels/fabrics'</l>
+<l>ClassNames := ['background', 'edge']</l>
+<l>ClassIDs := [0, 255]</l>
+<l>ImageList := 'fabrics_' + [1:10]$'.2d' + '.png'</l>
+<l>read_dl_dataset_segmentation (ImageDir, LabelDir, ClassNames, ClassIDs, ImageList, [], [], DLDataset)</l>
+<c></c>
+<c>* Define whether the progress is shown</c>
+<l>ShowProgress := 'false'</l>
+<l>PrunePercentage := 40</l>
+<l>GenParamPrune := dict{show_progress: ShowProgress}</l>
+<c></c>
+<c>* Set augmentation parameters: percentage and method.</c>
+<l>AugmentationParam := dict{augmentation_percentage: 50, mirror: 'rc'}</l>
+<l>GenParamPrune.augmentation_param := AugmentationParam</l>
+<c></c>
+<c>* prune the model: done within the procedure</c>
+<l>prune_dl_model (DLModelHandle, DLDataset, PrunePercentage, GenParamPrune, DLModelHandlePruned, DLPruningHandle)</l>
+<c></c>
+<l>set_dl_model_param (DLModelHandlePruned, 'device', DLDevice)</l>
+<c></c>
+<c></c>
+<c></c>
+<c>**************************************************************</c>
+<c></c>
+<c></c>
+<l>for Index := 1 to 50 by 1</l>
+<c></c>
+<c>    * horiBars1, vertBars1, checkerBoard1</c>
+<l>    read_image (ImageTest, 'C:/Users/chen1/Documents/CS221_2024/Project/images/checkerBoard2')</l>
+<c>    </c>
+<c>    </c>
+<c>    </c>
+<c>    *&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; DL EDGE EXTRACTION METHOD</c>
+<l>    count_seconds (begin1)</l>
+<c>    * Specify minimum confidence to reduce false positive edges.</c>
+<l>    MinConfidence := 0.8</l>
+<l>    apply_dl_edge_extractor (ImageTest, ConfidentEdgeRegion, DLModelHandle, DLPreprocessParam, MinConfidence)</l>
+<c>    </c>
+<l>    count_seconds (end1)</l>
+<l>    runtimeDL := (end1-begin1)*1000    </l>
+<c></c>
+<l>    skeleton (ConfidentEdgeRegion, DLEdges)</l>
+<c>    </c>
+<c>        </c>
+<c>    </c>
+<c>    *&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; CLASSIC EDGE EXTRACTION METHOD</c>
+<l>    count_seconds (begin2)</l>
+<c>    </c>
+<c>    * Canny edge</c>
+<l>*     edges_image (ImageTest, ImaAmp, ImaDir, 'canny', 1, 'nms', 20, 40)</l>
+<l>*     threshold (ImaAmp, Edges, 1, 255)</l>
+<l>*     skeleton (Edges, Skeleton)</l>
+<l>*     gen_contours_skeleton_xld (Skeleton, Contours, 1, 'filter')</l>
+<c>    </c>
+<c>    * Sobel filter</c>
+<l>    sobel_amp (ImageTest, EdgeAmplitude, 'sum_abs', 3)</l>
+<l>    threshold (EdgeAmplitude, Contours, 128, 255)</l>
+<c>    </c>
+<l>    count_seconds (end2)</l>
+<l>    runtimeSB := (end2-begin2)*1000</l>
+<c>    </c>
+<c>        </c>
+<c>    </c>
+<c>    * Display image and result.</c>
+<l>    min_max_gray (ImageTest, ImageTest, 0, Min, Max, Range)</l>
+<l>    dev_clear_window ()</l>
+<l>    dev_display (ImageTest)</l>
+<l>    dev_set_color ('cyan')</l>
+<l>    dev_display (Contours)</l>
+<l>    dev_disp_text ('DL edge extraction runtime='+runtimeDL,    'window', 0,  0, 'black', [], [])    </l>
+<l>    dev_disp_text ('Sobel edge extraction runtime='+runtimeSB, 'window', 21, 0, 'black', [], [])</l>
+<l>    stop ()</l>
+<c>    </c>
+<l>endfor</l>
+<c></c>
+</body>
+<docu id="main">
+<parameters/>
+</docu>
+</procedure>
+<procedure name="add_noise">
+<interface>
+<io>
+<par name="ImageInput" base_type="iconic" dimension="0"/>
+</io>
+<oo>
+<par name="ImageOutput" base_type="iconic" dimension="0"/>
+</oo>
+<ic>
+<par name="NoiseType" base_type="ctrl" dimension="0"/>
+<par name="NoiseLevel" base_type="ctrl" dimension="0"/>
+</ic>
+</interface>
+<body>
+<c>* This local procedure adds noise to the input image depending</c>
+<c>* on NoiseType and NoiseLevel.</c>
+<c>* </c>
+<l>get_image_size (ImageInput, ImageWidth, ImageHeight)</l>
+<c>* </c>
+<l>if (NoiseType == 'white')</l>
+<l>    add_noise_white (ImageInput, ImageOutput, NoiseLevel)</l>
+<l>elseif (NoiseType == 'gradient')</l>
+<l>    gen_image_const (ImageNoise1, 'real', ImageWidth, ImageHeight)</l>
+<l>    gen_image_const (ImageNoise2, 'real', ImageWidth, ImageHeight)</l>
+<l>    add_noise_white (ImageNoise1, ImageNoise1, NoiseLevel / 2)</l>
+<l>    add_noise_white (ImageNoise2, ImageNoise2, NoiseLevel / 2)</l>
+<l>    real_to_vector_field (ImageNoise1, ImageNoise2, VectorField, 'vector_field_relative')</l>
+<l>    reconstruct_height_field_from_gradient (VectorField, HeightField, 'poisson', [], [])</l>
+<l>    convert_image_type (ImageInput, ImageConverted, 'real')</l>
+<l>    add_image (ImageConverted, HeightField, ImageResult, 1.0, 0)</l>
+<l>    convert_image_type (ImageResult, ImageOutput, 'byte')</l>
+<l>elseif (NoiseType == 'scanline')</l>
+<l>    ImageHeightNoise := ImageHeight * 5</l>
+<l>    gen_image_const (ImageNoise, 'real', ImageWidth, ImageHeightNoise)</l>
+<l>    RandomLines := rand(ImageHeightNoise) * NoiseLevel - NoiseLevel / 2</l>
+<l>    for RIdx := 0 to ImageHeightNoise - 1 by 1</l>
+<l>        gen_rectangle1 (LineRegion, RIdx, 0, RIdx, ImageWidth - 1)</l>
+<l>        overpaint_region (ImageNoise, LineRegion, RandomLines[RIdx], 'fill')</l>
+<l>    endfor</l>
+<l>    zoom_image_size (ImageNoise, ImageNoise, ImageWidth, ImageHeight, 'constant')</l>
+<l>    add_noise_white (ImageNoise, ImageNoise, NoiseLevel * 0.1)</l>
+<l>    convert_image_type (ImageInput, ImageConverted, 'real')</l>
+<l>    add_image (ImageConverted, ImageNoise, ImageResult, 1.0, 0)</l>
+<l>    convert_image_type (ImageResult, ImageOutput, 'byte')</l>
+<l>endif</l>
+<c>* </c>
+<l>return ()</l>
+</body>
+<docu id="add_noise">
+<parameters>
+<parameter id="ImageInput"/>
+<parameter id="ImageOutput"/>
+<parameter id="NoiseLevel"/>
+<parameter id="NoiseType"/>
+</parameters>
+</docu>
+</procedure>
+<procedure name="dev_disp_description_intro">
+<interface/>
+<body>
+<l>dev_open_window (0, 0, 800, 380, 'black', WindowHandleText)</l>
+<l>set_display_font (WindowHandleText, 16, 'mono', 'true', 'false')</l>
+<c>* </c>
+<l>Text := 'This example shows how to use the pretrained deep learning edge'</l>
+<l>Text[|Text|] := 'extraction model to segment edges in images. The steps to perform'</l>
+<l>Text[|Text|] := 'inference to extract edges are similar to the common workflow of'</l>
+<l>Text[|Text|] := 'deep learning semantic segmentation:'</l>
+<l>Text[|Text|] := ''</l>
+<l>Text[|Text|] := '0. Determine runtime device.'</l>
+<l>Text[|Text|] := '1. Read deep learning model and set model parameters.'</l>
+<l>Text[|Text|] := '2. Read input image, generate DLSample and preprocess it.'</l>
+<l>Text[|Text|] := '3. Apply model on preprocessed DLSample.'</l>
+<l>Text[|Text|] := '4. Postprocess inference result to extract edges.'</l>
+<l>Text[|Text|] := ''</l>
+<l>Text[|Text|] := 'The deep learning model is pretrained to handle different kinds of'</l>
+<l>Text[|Text|] := 'contrasts and noises. In this example, we apply the model on images'</l>
+<l>Text[|Text|] := 'with varying contrasts and noises and display the result.'</l>
+<l>dev_set_window (WindowHandleText)</l>
+<l>dev_clear_window ()</l>
+<l>dev_disp_text (Text, 'window', 'center', 'center', 'black', 'box', 'true')</l>
+<l>disp_continue_message (WindowHandleText, 'black', 'true')</l>
+<c>* </c>
+<l>return ()</l>
+</body>
+<docu id="dev_disp_description_intro">
+<parameters/>
+</docu>
+</procedure>
+<procedure name="apply_dl_edge_extractor">
+<interface>
+<io>
+<par name="Image" base_type="iconic" dimension="0"/>
+</io>
+<oo>
+<par name="ConfidentEdgeRegion" base_type="iconic" dimension="0"/>
+</oo>
+<ic>
+<par name="DLModelHandle" base_type="ctrl" dimension="0"/>
+<par name="DLPreprocessParam" base_type="ctrl" dimension="0"/>
+<par name="MinConfidence" base_type="ctrl" dimension="0"/>
+</ic>
+</interface>
+<body>
+<c>* This local procedure performs the inference of the DL edge extraction</c>
+<c>* model on the input image and returns the extracted edges.</c>
+<c>* </c>
+<c>* Create DLSample from the input image and perform DL-specific preprocessing.</c>
+<l>gen_dl_samples_from_images (Image, DLSample)</l>
+<l>preprocess_dl_samples (DLSample, DLPreprocessParam)</l>
+<c>* </c>
+<c>* Apply DL model and get inference result.</c>
+<l>apply_dl_model (DLModelHandle, DLSample, [], DLResult)</l>
+<l>get_dict_object (SegmentationImage, DLResult, 'segmentation_image')</l>
+<l>get_dict_object (SegmentationConfidence, DLResult, 'segmentation_confidence')</l>
+<l>threshold (SegmentationImage, DLEdgeRegion, 1, 255)</l>
+<l>threshold (SegmentationConfidence, ConfidentRegion, MinConfidence, 255)</l>
+<l>intersection (DLEdgeRegion, ConfidentRegion, ConfidentEdgeRegion)</l>
+<c>* </c>
+<l>return ()</l>
+</body>
+<docu id="apply_dl_edge_extractor">
+<parameters>
+<parameter id="ConfidentEdgeRegion"/>
+<parameter id="DLModelHandle"/>
+<parameter id="DLPreprocessParam"/>
+<parameter id="Image"/>
+<parameter id="MinConfidence"/>
+</parameters>
+</docu>
+</procedure>
+</hdevelop>
